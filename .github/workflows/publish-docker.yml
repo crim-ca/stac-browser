@@ -16,7 +16,7 @@ on:
 env:
   REGISTRY: ghcr.io
   TAG_NAME: ${{ github.event.inputs.TAG_NAME || github.event.release.tag_name }}
-  pathPrefix: ${{ github.event.inputs.pathPrefix }}
+  pathPrefix: ${{ github.event.inputs.pathPrefix || '/stac-browser/' }}
 
 jobs:
   retag-docker-image:
