@@ -26,7 +26,7 @@ body {
 
   > header {
     .site {
-      border-bottom: 3px solid map-get($theme-colors, "primary");
+      border-bottom: 3px solid $primary;
 
       > .col-md-12 {
         > .title {
@@ -70,12 +70,12 @@ body {
             align-items: center;
             font-size: 2.2rem;
           }
-          @include media-breakpoint-down(xl) {
+          @include media-breakpoint-down(xxl) {
             h1 {
               font-size: 2rem;
             }
           }
-          @include media-breakpoint-down(md) {
+          @include media-breakpoint-down(lg) {
             h1 {
               font-size: 1.75rem;
             }
@@ -97,6 +97,25 @@ body {
   > footer {
     padding-bottom: $block-margin;
     text-align: center;
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      list-style: none;
+      padding: 0;
+      margin: 0 0 $block-margin 0;
+      font-size: 0.875rem;
+
+      li:not(:last-child)::after {
+        content: "|";
+        margin: 0 0.5em;
+      }
+    }
+
+    .poweredby {
+      display: block;
+    }
   }
 
   .popover-large {
@@ -119,27 +138,48 @@ body {
   }
 
   h2 {
-    color: map-get($theme-colors, "secondary");
+    color: $secondary;
     font-weight: 600;
   }
 
   .maps-preview {
     position: static;
 
-    .nav-pills {
-      margin: 0;
-      padding: 0;
+    .tabs {
+      align-items: stretch !important;
 
-      > li {
-        margin: 0 0.5rem;
-        &:only-child {
-          display: none;
-        }
-        &:first-of-type {
-          margin-top: 0.5rem;
-        }
-        &:last-of-type {
-          margin-bottom: 0.5rem;
+      .tab-content {
+        width: 100%;
+        position: relative;
+      }
+
+      .card-header {
+        margin: 0;
+        padding: 0;
+        border-bottom: 0;
+
+        .nav-pills {
+          margin: 0;
+          margin-right: 0 !important;
+          padding: 0;
+
+          > li {
+            margin: 0 0.5rem;
+            &:only-child {
+              display: none;
+            }
+            &:first-of-type {
+              margin-top: 0.5rem;
+            }
+            &:last-of-type {
+              margin-bottom: 0.5rem;
+            }
+
+            > button {
+              width: 100%;
+              text-align: left;
+            }
+          }
         }
       }
     }
@@ -186,10 +226,6 @@ body {
     background: transparent;
   }
 
-  input:invalid {
-    border-color: map-get($theme-colors, "danger");
-  }
-
   a.list-group-item {
     color: $link-color;
     text-decoration: $link-decoration;
@@ -204,18 +240,18 @@ body {
   .btn-group-vertical {
     .btn-primary,
     .btn-secondary {
-      border-color: darken(map-get($theme-colors, "primary"), 15%);
+      border-color: darken($primary, 15%);
       &:hover {
-        border-color: darken(map-get($theme-colors, "primary"), 30%);
+        border-color: darken($primary, 30%);
       }
     }
     .btn-secondary {
       background-color: lighten(
-        desaturate(map-get($theme-colors, "primary"), 50%),
+        desaturate($primary, 50%),
         20%
       );
       &:hover {
-        background-color: darken(map-get($theme-colors, "primary"), 5%);
+        background-color: darken($primary, 5%);
       }
     }
   }
@@ -244,30 +280,57 @@ body {
     }
   }
 
-  .expandable-card > .card-header {
+  .accordion-item > .accordion-header {
     padding: 0;
     background-color: transparent;
   }
-  .expandable-card > .card-header > .btn,
-  .mimic-expandable-card > .list-group-item {
+  .accordion-item > .accordion-header > .accordion-button,
+  .mimic-accordion > .list-group-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 0.25rem;
     padding: 0.5rem;
     background-color: rgba(0, 0, 0, 0.03);
+    overflow: hidden;
 
-    > .title {
-      text-align: left;
-      flex-grow: 9;
+    &::after {
+      display: none;
     }
+
+    > .start {
+      display: flex;
+      flex: 1 1 auto;
+      gap: 0.25rem;
+      align-items: center;
+      overflow: hidden;
+      min-width: 50%;
+
+      > .title {
+        text-align: left;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+    }
+
     > .badges {
-      flex-grow: 1;
-      text-align: right;
+      flex: 0 1 auto;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      min-width: 0;
+      overflow: hidden;
 
       .badge {
         margin: 0.125rem;
         text-transform: uppercase;
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
       }
     }
   }
@@ -299,7 +362,7 @@ body {
 
   .card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
     grid-auto-rows: min-content;
     // The layout uses margin-bottom instead of row-gap (on .catalog-grid), because
     // the .card-img-wrapper is supposed to collapse to 0px height when there are no
@@ -323,15 +386,15 @@ body {
         min-height: 4rem;
       }
     }
-    
+
     .catalog-card,
     .item-card {
-      grid-row: span 6;
+      grid-row: span 7;
 
       .card-body {
         display: grid;
         grid-template-rows: subgrid;
-        grid-row: span 3;
+        grid-row: span 4;
       }
     }
 
@@ -339,7 +402,7 @@ body {
       grid-row: span 1;
     }
   }
-  
+
   .catalog-card,
   .item-card,
   .feature-card {
@@ -350,8 +413,10 @@ body {
         opacity: 1;
       }
     }
-
-    .card-img {
+    
+    .card-img-top,
+    .card-img-end,
+    .card-img-start {
       width: auto;
       height: auto;
       object-fit: scale-down;
@@ -359,7 +424,7 @@ body {
     }
 
     .card-img-wrapper {
-      background-color: rgba(0, 0, 0, 0.03);
+      background-color: var(--bs-card-cap-bg);
       display: grid;
       overflow: hidden;
 
@@ -367,7 +432,7 @@ body {
         margin: auto;
         border-radius: 0;
 
-        &.thumbnail.card-img {
+        &.card-img-top {
           max-width: 100%;
           max-height: 250px;
         }
@@ -376,11 +441,17 @@ body {
 
     .card-title {
       overflow-wrap: anywhere;
+      margin-bottom: 0.25rem;
     }
 
     .card-body,
     .card-footer {
       position: relative;
+      gap: 0.5rem;
+
+      > p {
+        margin: 0;
+      }
     }
     .card-footer {
       .btn-group-vertical {
@@ -390,11 +461,11 @@ body {
     .card-footer:empty {
       display: none;
     }
-  
+
     .badge.deprecated {
       text-transform: uppercase;
     }
-    
+
     .intro {
       display: -webkit-box;
       -webkit-line-clamp: 3;
@@ -405,12 +476,6 @@ body {
       text-align: left;
       line-height: 1.5em;
       max-height: 4.5em; /* 3 lines at 1.5em line-height */
-    }
-
-    &.has-extent {
-      .intro {
-        margin-bottom: 0.5rem;
-      }
     }
 
     .datetime {
@@ -430,24 +495,35 @@ body {
       overflow: hidden;
 
       .card-img-wrapper {
-        max-width: 33%;
-        max-height: 100%;
+        width: 33%;
+        position: relative;
+        overflow: hidden;
 
-        .card-img-right {
-          max-width: 100%;
-          max-height: 9rem;
+        &:empty {
+          display: none;
+        }
+
+        .card-img-end {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
           object-fit: scale-down;
           object-position: center;
         }
       }
 
       .card-body {
+        display: flex;
+        flex-direction: column;
         flex: 1;
+        gap: 0.25rem;
 
         .intro {
           -webkit-line-clamp: 2;
           line-clamp: 2;
-          height: 3rem;
+          max-height: 3rem;
         }
       }
 
@@ -459,11 +535,7 @@ body {
   }
 }
 
-@import "~vue-multiselect/dist/vue-multiselect.min.css";
-
-// Datepicker related style
-$default-color: map-get($theme-colors, "secondary");
-$primary-color: map-get($theme-colors, "primary");
+@import "vue-multiselect/dist/vue-multiselect.min.css";
 
 // Multiselect related style
 #stac-browser {
@@ -495,12 +567,12 @@ $primary-color: map-get($theme-colors, "primary");
   .multiselect__tag-icon:hover,
   .multiselect__option--highlight,
   .multiselect__option--highlight:after {
-    background-color: map-get($theme-colors, "primary");
+    background-color: $primary;
   }
 
   .multiselect__option--selected.multiselect__option--highlight,
   .multiselect__option--selected.multiselect__option--highlight:after {
-    background-color: map-get($theme-colors, "secondary");
+    background-color: $secondary;
   }
 
   .multiselect__placeholder {
@@ -526,6 +598,13 @@ $primary-color: map-get($theme-colors, "primary");
     min-width: 200px;
     width: 50vw;
     border-radius: $border-radius;
+
+    .b-form-group {
+      margin-bottom: 0.5rem;
+    }
+    .b-form-group:last-of-type {
+      margin-bottom: 0;
+    }
 
     > .card {
       background-color: #fff;

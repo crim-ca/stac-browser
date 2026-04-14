@@ -6,16 +6,39 @@ The following options can be provided in various ways to STAC Browser, either wh
 The following ways to set config options are possible:
 
 - Customize the **[config file](../config.js)** (recommended)
-- Additionally, some options can be [provided through the **root catalog**](../README.md#customize-through-root-catalog) for consistency across multiple deployments
+- Load an **external config file** via `SB_CONFIG`
+- Additionally, some options can be [provided through the **root catalog**](../README.md#customization-through-root-catalog) for consistency across multiple deployments
 - Set **environment variables**, all options need a `SB_` prefix.
   So you could for example set the catalog URL via the environment variable `SB_catalogUrl`.
+  Vite loads `.env`, `.env.local`, `.env.[mode]` and `.env.[mode].local` automatically, so `SB_*` variables can be stored there.
 - Optionally, you can also set options after the build, basically **at "runtime"**.
-  Enable this by removing the `<!--` and `-->` around the `<script defer="defer" src="./config.js"></script>` in the [`public/index.html`](../public/index.html).
-  Then run the build procedure and after completion, you can fill the `dist/config.js` with any options that you want to customize.
+  Enable this by removing the `<!--RC` and `RC-->` around the `script` tag that loads the `runtime-config.js` in the [`index.html`](../index.html).
+  Then run the build procedure and after completion, you can fill the `dist/runtime-config.js` with any options that you want to customize.
 
-> [!WARNING]  
-> Appending configuration options as CLI parameters to the CLI command (e.g. `npm run build -- --catalogUrl="https://example.com"`) is DEPRECATED and will be removed in STAC Browser v5.
-> Reason is that such parameters are [not suppored by Vite](https://github.com/vitejs/vite/issues/7065), which will be used in v5 instead of vue-cli.
+> [!TIP]  
+> To enable the usage of a local configuration file, follow these steps:
+>
+> 1. Create a `.env` file with the following content:
+>
+>    ```bash
+>    SB_CONFIG=config.local.mjs
+>    ```
+>
+> 2. Create a `config.local.mjs` and add options from the `config.js` as needed, for example:
+>
+>    ```js
+>    export default {
+>      catalogUrl: 'https://stac.example.com'
+>    }
+>    ```
+
+The override order for the configuration is:
+
+`config.js` (lowest priority) -> config from `SB_CONFIG` -> `SB_*` env vars -> `runtime-config.js` (highest priority)
+
+> [!CAUTION]  
+> Appending configuration options as CLI parameters to the CLI command (e.g. `npm run build -- --catalogUrl="https://example.com"`) has been removed in  STAC Browser v5.
+> The reason is that such parameters are [not suppored by Vite](https://github.com/vitejs/vite/issues/7065).
 
 ## Table of Contents <!-- omit in toc -->
 
@@ -23,6 +46,7 @@ The following ways to set config options are possible:
   - [catalogUrl](#catalogurl)
   - [catalogTitle](#catalogtitle)
   - [catalogImage](#catalogimage)
+  - [footerLinks](#footerlinks)
   - [apiCatalogPriority](#apicatalogpriority)
 - [Deployment](#deployment)
   - [historyMode](#historymode)
@@ -89,6 +113,20 @@ The default title shown if no title can be read from the root STAC catalog.
 
 URL to an image to use as a logo with the title.
 Should be an image that browsers can display, e.g. PNG, JPEG, WebP, or SVG.
+
+### footerLinks
+
+Array of links to display in the footer above the "Powered by STAC Browser" text. Each link requires a `label` and `url`.
+
+Example:
+```js
+footerLinks: [
+  { label: "Imprint", url: "https://example.com/imprint" },
+  { label: "Terms of use", url: "https://example.com/terms" },
+  { label: "Accessibility", url: "https://example.com/accessibility" },
+  { label: "Privacy", url: "https://example.com/privacy" }
+]
+```
 
 ### apiCatalogPriority
 

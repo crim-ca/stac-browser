@@ -1,9 +1,10 @@
-let config;
-if (typeof CONFIG_PATH === 'undefined') {
-  config = require('../config');
-}
-else {
-  config = require(CONFIG_PATH);
-}
+import defaultConfig from "../config.js";
+import externalConfig from "@stac-browser-external-config";
 
-export default Object.assign(config, CONFIG_CLI, window.STAC_BROWSER_CONFIG);
+export default Object.assign(
+  {},
+  defaultConfig,
+  externalConfig,
+  CONFIG_FROM_ENV,
+  window.STAC_BROWSER_CONFIG
+);

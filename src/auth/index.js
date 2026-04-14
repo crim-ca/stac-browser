@@ -1,17 +1,17 @@
 import i18n from '../i18n';
-import Utils from '../utils';
+import { hasText, isObject } from 'stac-js/src/utils.js';
 
 export default class Auth {
 
   /**
    * Constructs the authentication method.
    * 
+   * @param {Router} router The Vue router instance
    * @param {Object.<string, *>} options  Any potential options the authentication method needs
    * @param {Function} changeListener A change listener with two parameters: loggedIn (boolean) and credentials (string|null)
-   * @param {Router} router The Vue router instance
    */
-  constructor(options = {}, changeListener = null, router = null) {
-    this.options = options;
+  constructor(router, options = {}, changeListener = null) {
+    this.options = isObject(options) ? options : {};
     this.changeListener = changeListener;
     this.router = router;
   }
@@ -31,7 +31,7 @@ export default class Auth {
    * @returns {string}
    */
   getLoginLabel() {
-    return i18n.t('authentication.button.login');
+  return i18n.global.t('authentication.button.login');
   }
 
   /**
@@ -40,7 +40,7 @@ export default class Auth {
    * @returns {string}
    */
   getLogoutLabel() {
-    return i18n.t('authentication.button.logout');
+  return i18n.global.t('authentication.button.logout');
   }
 
   getComponent() {
@@ -95,7 +95,7 @@ export default class Auth {
         value = formatter(value);
       }
     }
-    if (!Utils.hasText(value)) {
+    if (!hasText(value)) {
       value = undefined;
     }
 
@@ -114,20 +114,20 @@ export default class Auth {
     }
   }
 
-  static async create(config, changeListener, router) {
-    let method = new Auth();
-    if (Utils.isObject(config)) {
+  static async create(router, config, changeListener) {
+    let method = new Auth(router, config, changeListener);
+    if (isObject(config)) {
       if (config.type === 'http' && config.scheme === 'basic') {
         const BasicAuth = (await import('./basic')).default;
-        method = new BasicAuth(config, changeListener, router);
+        method = new BasicAuth(router, config, changeListener);
       }
       else if (config.type === 'apiKey') {
         const ApIKey = (await import('./apiKey')).default;
-        method = new ApIKey(config, changeListener, router);
+        method = new ApIKey(router, config, changeListener);
       }
       else if (config.type === 'openIdConnect') {
         const OIDC = (await import('./oidc')).default;
-        method = new OIDC(config, changeListener, router);
+        method = new OIDC(router, config, changeListener);
       }
     }
     await method.init();

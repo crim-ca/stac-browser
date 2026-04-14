@@ -1,59 +1,63 @@
 <template>
-  <b-card class="asset expandable-card" no-body>
-    <b-card-header header-tag="header" role="tab">
-      <b-button block v-b-toggle="uid" variant="asset" squared>
+  <b-accordion-item
+    :id="uid"
+    v-model="expanded"
+    class="asset"
+    body-class="asset-body"
+    @update:model-value="collapseToggled"
+  >
+    <template #title>
+      <span class="start">
         <span class="chevron" aria-hidden="true">
           <b-icon-chevron-down v-if="expanded" />
           <b-icon-chevron-right v-else />
         </span>
-        <span class="title">{{ title }}</span>
-        <div class="badges ml-1">
-          <b-badge v-if="shown" variant="success" class="shown" :title="$t('assets.currentlyShown')">
-            <b-icon-check /> {{ $t('assets.shown') }}
-          </b-badge>
-          <b-badge v-if="asset.deprecated" variant="warning" class="deprecated">{{ $t('deprecated') }}</b-badge>
-          <template v-if="Array.isArray(asset.roles)">
-            <b-badge v-for="role in asset.roles" :key="role" :variant="role === 'data' ? 'primary' : 'secondary'" class="role">{{ displayRole(role) }}</b-badge>
-          </template>
-          <b-badge v-if="shortFileFormat" variant="dark" class="format" :title="fileFormat"><span v-html="shortFileFormat" /></b-badge>
-        </div>
-      </b-button>
-    </b-card-header>
-    <b-collapse :id="uid" v-model="expanded" :accordion="type" role="tabpanel" @input="collapseToggled">
-      <template v-if="hasAlternatives">
-        <b-tabs card>
-          <b-tab :title="asset['alternate:name'] || $t('assets.alternate.main')" active>
+        <span class="title" :title="title">{{ title }}</span>
+      </span>
+      <div class="badges ms-1">
+        <b-badge v-if="shown" variant="success" class="shown" :title="$t('assets.currentlyShown')">
+          <b-icon-check /> {{ $t('assets.shown') }}
+        </b-badge>
+        <b-badge v-if="asset.deprecated" variant="warning" class="deprecated">{{ $t('deprecated') }}</b-badge>
+        <template v-if="Array.isArray(asset.roles)">
+          <b-badge v-for="role in sortedRoles" :key="role" :variant="role === 'data' ? 'primary' : 'secondary'" class="role" :title="displayRole(role)">{{ displayRole(role) }}</b-badge>
+        </template>
+        <b-badge v-if="shortFileFormat" variant="dark" class="format" :title="fileFormat"><span v-html="shortFileFormat" /></b-badge>
+      </div>
+    </template>
+   
+    <template v-if="hasAlternatives">
+      <b-card no-body class="border-0 rounded-0">
+        <b-tabs lazy card>
+          <b-tab :title="asset['alternate:name'] || $t('assets.alternate.main')" active no-body>
             <AssetAlternative :asset="asset" :shown="shown" hasAlternatives @show="show" />
           </b-tab>
-          <b-tab v-for="(altAsset, key) in alternatives" :title="altAsset['alternate:name'] || key" :key="key">
-            <AssetAlternative :asset="altAsset" :shown="shown" hasAlternatives :key="key" @show="show" />
+          <b-tab v-for="(altAsset, key) in alternatives" :title="altAsset['alternate:name'] || key" :key="key" no-body>
+            <AssetAlternative :asset="altAsset" :shown="shown" hasAlternatives @show="show" />
           </b-tab>
         </b-tabs>
-      </template>
-      <AssetAlternative v-else :asset="asset" :shown="shown" @show="show" />
-    </b-collapse>
-  </b-card>
+      </b-card>
+    </template>
+    <AssetAlternative v-else :asset="asset" :shown="shown" @show="show" />
+  </b-accordion-item>
 </template>
 
 <script>
-import { BCollapse, BIconCheck, BIconChevronRight, BIconChevronDown, BTabs, BTab } from 'bootstrap-vue';
+import { defineAsyncComponent } from 'vue';
 import { formatMediaType } from '@radiantearth/stac-fields/formatters';
 import { mapState } from 'vuex';
-import AssetAlternative from './AssetAlternative.vue';
 import StacFieldsMixin from './StacFieldsMixin';
-import Utils from '../utils';
-import { Asset } from 'stac-js';
+import { isObject, size } from 'stac-js/src/utils.js';
+import { BCard, BTab, BTabs, BAccordionItem } from 'bootstrap-vue-next';
 
 export default {
   name: 'Asset',
   components: {
-    AssetAlternative,
-    BCollapse,
-    BIconCheck,
-    BIconChevronDown,
-    BIconChevronRight,
+    AssetAlternative: defineAsyncComponent(() => import('./AssetAlternative.vue')),
+    BCard,
+    BTab,
     BTabs,
-    BTab
+    BAccordionItem
   },
   mixins: [
     StacFieldsMixin({ formatMediaType })
@@ -76,6 +80,7 @@ export default {
       default: false
     }
   },
+  emits: ['show'],
   data() {
     return {
       expanded: false
@@ -105,24 +110,34 @@ export default {
       return null;
     },
     alternatives() {
-      if (!Utils.isObject(this.asset.alternate)) {
+      if (!isObject(this.asset.alternate)) {
         return {};
       }
 
-      const inherit = this.asset.toJSON();
-      delete inherit.alternate;
-
       const alternates = {};
       for (const key in this.asset.alternate) {
-        const alternate = this.asset.alternate[key];
-        const merged = Object.assign({}, inherit, alternate.toJSON());
-        alternates[key] = new Asset(merged, key, alternate.getContext());
+        alternates[key] = this.asset.alternate[key].fillAlternate();
       }
       
       return alternates;
     },
     hasAlternatives() {
-      return Utils.size(this.alternatives) > 0;
+      return size(this.alternatives) > 0;
+    },
+    sortedRoles() {
+      if (!Array.isArray(this.asset.roles)) {
+        return [];
+      }
+      // Sort roles with 'data' first, then alphabetically (case-insensitive)
+      return [...this.asset.roles].sort((a, b) => {
+        if (a === 'data') {
+          return -1;
+        }
+        if (b === 'data') {
+          return 1;
+        }
+        return a.toLowerCase().localeCompare(b.toLowerCase(), undefined, { sensitivity: 'base' });
+      });
     }
   },
   created() {
@@ -159,15 +174,16 @@ export default {
 
 <style lang="scss">
 #stac-browser .asset {
+  .asset-body {
+    padding: 0;
+  }
+
   .metadata {
     .card-columns {
       column-count: 1;
     }
     .card {
       border: 0;
-    }
-    .card-body {
-      padding: 0;
     }
   }
 }

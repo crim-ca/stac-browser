@@ -8,37 +8,48 @@ import {
   STACReference
 } from 'stac-js';
 import Migrate from '@radiantearth/stac-migrate';
-import Utils, { geojsonMediaType } from "../utils";
+import Utils from "../utils";
+import { hasText } from 'stac-js/src/utils.js';
+import { toAbsolute } from 'stac-js/src/http.js';
+
 
 export function createSTAC(data, url, path, migrate = true, updateVersionNumber = false) {
   if (migrate) {
     // Uncomment this line if the old checksum: fields should be converted
     // This is usually not needed so it's not enabled by default to shrink the bundle size
     // Migrate.enableMultihash(require('multihashes'));
+    data._original = data;
     data = Migrate.stac(data, updateVersionNumber);
   }
+  let obj;
   if (data.type === 'Feature') {
-    return new Item(data, url, path);
+    obj = new Item(data, url, path);
   }
   else if (data.type === 'FeatureCollection') {
-    return new ItemCollection(data, url, path);
+    // todo: convert inner collections to stac-js as well
+    obj = new ItemCollection(data, url, path);
   }
   else if (data.type === 'Collection' || (!data.type && typeof data.extent !== 'undefined' && typeof data.license !== 'undefined')) {
-    return new Collection(data, url, path);
+    obj = new Collection(data, url, path);
   }
   else if (!data.type && Array.isArray(data.collections)) {
-    return new CollectionCollection(data, url, path);
+    // todo: convert inner collections to stac-js as well
+    obj = new CollectionCollection(data, url, path);
   }
   else {
-    return new Catalog(data, url, path);
+    obj = new Catalog(data, url, path);
   }
+  if (data._original) {
+    obj._privateKeys.push('_original');
+  }
+  return obj;
 }
 
 export function addMissingChildren(catalogs, stac) {
   let links = stac.getStacLinksWithRel('child').filter(link => {
     // Don't add links that are already in collections: https://github.com/radiantearth/stac-browser/issues/103
     // ToDo: The runtime of this can probably be improved
-    let absoluteUrl = Utils.toAbsolute(link.href, stac.getAbsoluteUrl());
+    let absoluteUrl = toAbsolute(link.href, stac.getAbsoluteUrl());
     return !catalogs.find(collection => collection.getAbsoluteUrl() === absoluteUrl);
   });
   // place the children first to avoid conflicts with the paginated collections
@@ -57,14 +68,14 @@ export function getDisplayTitle(entities, fallbackTitle = "") {
     return fallbackTitle;
   }
   const title = entity.getMetadata("title");
-  if (Utils.hasText(title)) {
+  if (hasText(title)) {
     return title;
   }
   const id = entity.getMetadata("id");
-  if (Utils.hasText(id)) {
+  if (hasText(id)) {
     return id;
   }
-  if (Utils.hasText(fallbackTitle)) {
+  if (hasText(fallbackTitle)) {
     return fallbackTitle;
   }
   // Use file or directory name from STAC entity as title
@@ -72,7 +83,7 @@ export function getDisplayTitle(entities, fallbackTitle = "") {
 }
 
 function getChildren(stac, priority = null) {
-  if (!stac.isCatalogLike()) {
+  if (!stac.isCatalogLike) {
     return [];
   }
 
@@ -95,23 +106,12 @@ function getChildren(stac, priority = null) {
   return children;
 }
 
-
-function getSearchLink(stac) {
-  // The search link MUST be 'application/geo+json' as otherwise it's likely not STAC
-  // See https://github.com/opengeospatial/ogcapi-features/issues/832
-  let links = Utils.getLinksWithRels(stac.links, ['search'])
-    .filter(link => Utils.isMediaType(link.type, geojsonMediaType))
-    .map(link => Object.assign({}, link, {href: Utils.toAbsolute(link.href, stac.getAbsoluteUrl())}));
-  // Prefer POST if present
-  let post = links.find(link => Utils.hasText(link.method) && link.method.toUpperCase() === 'POST');
-  return post || links[0] || null;
-}
-
 export class ItemCollection extends BaseItemCollection {
 
   constructor(data, url, path) {
     super(data, url);
     this._path = path;
+    this._privateKeys.push('_path');
   }
 
   getBrowserPath() {
@@ -125,6 +125,7 @@ export class CollectionCollection extends BaseCollectionCollection {
   constructor(data, url, path) {
     super(data, url);
     this._path = path;
+    this._privateKeys.push('_path');
   }
 
   getBrowserPath() {
@@ -145,14 +146,11 @@ export class Collection extends BaseCollection {
       prev: false,
       next: false
     };
+    this._privateKeys.push('_path', '_incomplete', '_apiChildrenListeners', '_apiChildren');
   }
 
   getBrowserPath() {
     return this._path;
-  }
-
-  getSearchLink() {
-    return getSearchLink(this);
   }
 
   getChildren(priority = null) {
@@ -200,14 +198,11 @@ export class Catalog extends BaseCatalog {
       prev: false,
       next: false
     };
+    this._privateKeys.push('_path', '_incomplete', '_apiChildrenListeners', '_apiChildren');
   }
 
   getBrowserPath() {
     return this._path;
-  }
-
-  getSearchLink() {
-    return getSearchLink(this);
   }
 
   getChildren(priority = null) {
@@ -249,6 +244,7 @@ export class Item extends BaseItem {
     super(data, url);
     this._path = path;
     this._incomplete = false;
+    this._privateKeys.push('_path', '_incomplete');
   }
 
   getBrowserPath() {

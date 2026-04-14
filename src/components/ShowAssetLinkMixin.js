@@ -1,10 +1,15 @@
+import { defineComponent } from 'vue';
 import Utils from '../utils';
 import { mapGetters, mapState } from 'vuex';
 import { stacBrowserSpecialHandling } from "../rels";
 
-export default {
+export default defineComponent({
   data() {
     return {
+      tabIds: {
+        map: 'map',
+        thumbnails: 'thumbnails'
+      },
       tab: null,
       shownOnMap: [],
       selectedAssets: []
@@ -13,7 +18,6 @@ export default {
   computed: {
     ...mapState(['showThumbnailsAsAssets']),
     ...mapGetters(['data']),
-    // hasAssets in stac-js also checks whether the assets have a href and thus are not item asset definitions
     hasAssets() {
       return this.assets.length > 0;
     },
@@ -34,7 +38,7 @@ export default {
       if (!this.data) {
         return [];
       }
-      return this.data.getThumbnails();
+      return this.data.getThumbnails(true, null, true);
     },
     additionalLinks() {
       if (!this.data) {
@@ -44,7 +48,7 @@ export default {
         .filter(link => link.rel !== 'preview' || !link.canBrowserDisplayImage());
     },
     selectedReferences() {
-      if (this.tab === 0) {
+      if (this.tab === this.tabIds.map) {
         return this.shownOnMap;
       }
       else {
@@ -54,13 +58,11 @@ export default {
   },
   methods: {
     showAsset(asset) {
-      // todo: Replace find method with equals method when available in stac-js
-      // see https://github.com/moregeo-it/stac-js/issues/12
-      if (this.thumbnails.find(t => t.getAbsoluteUrl() === asset.getAbsoluteUrl())) {
-        this.tab = 1;
+      if (this.thumbnails.find(t => t.is(asset))) {
+        this.tab = this.tabIds.thumbnails;
       }
       else {
-        this.tab = 0;
+        this.tab = this.tabIds.map;
         this.selectedAssets = [asset];
       }
       if (this.$refs.tabs) {
@@ -77,8 +79,8 @@ export default {
     },
     handleEmptyMap() {
       if (this.hasThumbnails) {
-        this.tab = 1;
+        this.tab = this.tabIds.thumbnails;
       }
     }
   }
-};
+});

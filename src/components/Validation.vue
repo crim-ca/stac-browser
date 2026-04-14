@@ -10,14 +10,9 @@
 <script>
 import { STAC } from 'stac-js';
 import validateSTAC from 'stac-node-validator';
-import { BIconCheck, BIconX } from 'bootstrap-vue';
 
 export default {
   name: "Validation",
-  components: {
-    BIconCheck,
-    BIconX
-  },
   props: {
     data: {
       type: Object,
@@ -53,7 +48,8 @@ export default {
       this.valid = null;
       try {
         if (this.data instanceof STAC) {
-          const report = await validateSTAC(this.data);
+          const stac = this.data._original || this.data.toJSON();
+          const report = await validateSTAC(stac, {});
           this.valid = report.valid;
         }
       } catch (error) {
@@ -66,6 +62,4 @@ export default {
 };
 </script>
 
-<style>
 
-</style>

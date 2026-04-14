@@ -1,9 +1,9 @@
 <template>
   <div class="ol-layercontrol ol-unselectable ol-control" style="pointer-events: auto;">
-    <button :id="id"><b-icon-layers-fill /></button>
+    <button v-if="id" :id="id"><b-icon-layers-fill /></button>
     <b-popover
-      v-if="id" placement="top" triggers="click" @show="update"
-      :target="id" container="#stac-browser"
+      v-if="id" click placement="top" @show="update"
+      :target="id" teleport-to="#stac-browser" :boundary-padding="10"
     >
       <div class="layercontrol">
         <section>
@@ -17,7 +17,7 @@
         </section>
         <section v-if="hasLayers">
           <h5>{{ $t('mapping.layers.title') }}</h5>
-          <LayerControlGroup :map="map" :group="layerGroup" :maxZoom="maxZoom" />
+          <LayerControlGroup :map="map" :group="layerGroup" />
         </section>
       </div>
     </b-popover>
@@ -25,20 +25,17 @@
 </template>
 
 <script>
+import { defineAsyncComponent, markRaw } from 'vue';
 import ControlMixin from './ControlMixin';
 import LayerControlMixin from './LayerControlMixin';
-import { BFormRadio, BFormRadioGroup, BIconLayersFill, BPopover } from 'bootstrap-vue';
 import Group from 'ol/layer/Group';
 import MapUtils from './mapUtils';
 
 export default {
   name: 'LayerControl',
   components: {
-    BFormRadioGroup,
-    BFormRadio,
-    BIconLayersFill,
-    BPopover,
-    LayerControlGroup: () => import('./LayerControlGroup.vue')
+    BPopover: defineAsyncComponent(() => import('bootstrap-vue-next').then(m => m.BPopover)),
+    LayerControlGroup: defineAsyncComponent(() => import('./LayerControlGroup.vue'))
   },
   mixins: [
     ControlMixin,
@@ -93,19 +90,19 @@ export default {
   },
   methods: {
     update() {
-      this.layerGroup = this.map.getLayerGroup();
+      this.layerGroup = markRaw(this.map.getLayerGroup());
       this.baseLayers = [];
       for (const layer of this.layerGroup.getLayers().getArray()) {
         if (!layer.get('base')) {
           continue;
         }
         const data = {
-          layer,
+          layer: markRaw(layer),
           id: layer.ol_uid,
           title: this.getTitle(layer)
         };
         this.baseLayers.push(data);
-        if (MapUtils.isLayerVisible(layer)) {
+        if (MapUtils.isLayerVisible(this.map, layer)) {
           this.visibleBaseLayer = data.id;
         }
       }

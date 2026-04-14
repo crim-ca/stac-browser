@@ -41,12 +41,12 @@
     "password": "Parola",
     "required": "Autentificare necesară",
     "schemeTypes": {
-      "http": "HTTP {scheme}",
-      "s3": "S3",
-      "signedUrl": "URL Semnat",
-      "oauth2": "OAuth 2",
       "apiKey": "Cheie API",
-      "openIdConnect": "OpenID Connect"
+      "http": "HTTP {scheme}",
+      "oauth2": "OAuth 2",
+      "openIdConnect": "OpenID Connect",
+      "s3": "S3",
+      "signedUrl": "URL Semnat"
     },
     "title": "Autentificare",
     "unauthorized": "Nu aveți permisiuni să accesați aceste date. Autentificare necesară.",
@@ -71,6 +71,7 @@
     "true": "Doar"
   },
   "copy": "Copiază",
+  "copyErrors": {},
   "default": "Implicit",
   "defaultWithValue": "Implicit ({value})",
   "deprecated": "Învechit",
@@ -111,6 +112,7 @@
     "title": "Eroare",
     "unauthorized": "Solicitarea necesită informații de autentificare, cum ar fi un token API. Vă rugăm să furnizați acreditările și să încercați din nou"
   },
+  "exampleCode": {},
   "featureExperimental": "Această funcție este încă experimentală și poate da rezultate neașteptate!",
   "features": {
     "noProperties": "Nu au fost furnizate proprietăți."
@@ -157,16 +159,18 @@
   "map": "Hartă",
   "mapping": {
     "attribution": {
-      "label": "i",
-      "collapseLabel": "✕"
+      "collapseLabel": "✕",
+      "label": "i"
     },
-    "bboxSelect": {},
+    "bboxSelect": {
+      "error": {}
+    },
     "close": "Închidere",
     "layers": {
-      "title": "Straturi",
       "base": "Straturi de bază",
-      "unnamed": "Fără nume #{id}",
-      "footprint": "Amprentă la sol"
+      "footprint": "Amprentă la sol",
+      "title": "Straturi",
+      "unnamed": "Fără nume #{id}"
     },
     "location": {
       "description": "Mergi la locație"
@@ -204,6 +208,7 @@
     "previous": "‹ Precedent"
   },
   "poweredBy": "Cu sprijinul {link}",
+  "programming": {},
   "protocol": {
     "azure": "Microsoft Azure",
     "file": "Sistem de fișiere (local)",
@@ -234,9 +239,10 @@
   "search": {
     "addCollections": "Apăsați Enter pentru a adăuga o colecție",
     "addFilter": "Adăugați un filtru",
+    "additionalFilters": "Filtre suplimentare",
     "addItemIds": "Apăsați Enter pentru a adăuga un ID de articol",
     "addSearchTerm": "Apăsați enter pentru a adăuga un termen de căutare",
-    "additionalFilters": "Filtre suplimentare",
+    "arrayInput": {},
     "dateDescription": "Toate orele sunt timp universal coordonat (UTC).",
     "enterCollections": "Introduceți una sau mai multe colecții...",
     "enterItemIds": "Introduceți unul sau mai multe ID-uri de articol...",
@@ -317,8 +323,8 @@
       "message": "{title} este disponibil la adresa {url}",
       "sharePageWithOthers": "Partajați URL-ul acestei pagini cu alții:",
       "title": "Partajare",
-      "x": "X (Twitter)",
-      "withOthers": "Partajați această pagină"
+      "withOthers": "Partajați această pagină",
+      "x": "X (Twitter)"
     },
     "stacExtension": "Extensie STAC",
     "stacVersion": "Versiune STAC",
