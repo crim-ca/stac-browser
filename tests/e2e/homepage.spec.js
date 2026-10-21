@@ -9,24 +9,24 @@
 import { test, expect } from './fixtures.js';
 import { HOME_PATH, mockStacResource } from './helpers.js';
 import StaticCatalog from '../fixtures/instances/static.js';
-import { fileURLToPath } from 'url';
-import path from 'path';
 import fs from 'fs';
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const catalogs = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../fixtures/templates/catalogs.json')));
+const catalogs = JSON.parse(fs.readFileSync(
+  new URL('../fixtures/templates/catalogs.json', import.meta.url), 'utf-8'
+));
+import CONFIG from '../../config.js';
 
-test.describe('STAC Browser Homepage', () => {
+test.describe('STAC Browser Data Source Selection', () => {
   // ensure every test uses the mocked STAC Index response
   test.beforeEach(async ({ worker }) => {
     await mockStacResource(worker, 'https://stacindex.org/api/catalogs', catalogs);
   });
-  test('should load the homepage successfully', async ({ page }) => {
-    // Navigate to the homepage (STAC Index already mocked in beforeEach)
+  test('should load the data source selection successfully', async ({ page }) => {
+    // Navigate to the data source selection (STAC Index already mocked in beforeEach)
     await page.goto(HOME_PATH);
     
     // Check if the page title is visible
     await expect(page.locator('header [role="banner"]')).toBeVisible();
-    
+
     // Verify the page loads without errors
     await expect(page).toHaveTitle(/STAC Browser/);
     
@@ -37,12 +37,14 @@ test.describe('STAC Browser Homepage', () => {
     expect(count).toBeGreaterThan(10);
     
     // each entry should have a title and mention either API or Catalog
-    for (let i = 0; i < count; i++) {
+    await Promise.all(Array.from({ length: count }, (_, i) => {
       const btn = indexButtons.nth(i);
-      await expect(btn.locator('strong')).toHaveCount(1);
-      // the button text should include 'API' or 'Catalog' indicating badge
-      await expect(btn).toContainText(/API|Catalog/i);
-    }
+      return Promise.all([
+        expect(btn.locator('strong')).toHaveCount(1),
+        // the button text should include 'API' or 'Catalog' indicating badge
+        expect(btn).toContainText(/API|Catalog/i)
+      ]);
+    }));
   });
   
   test('should render language dropdown with flag icon and correct defaults', async ({ page }) => {
@@ -64,9 +66,9 @@ test.describe('STAC Browser Homepage', () => {
     const dropdownMenu = page.locator('.dropdown-menu');
     await expect(dropdownMenu).toBeVisible();
     
-    // Count the number of language options (should be 11)
+    // Count the number of language options (should be as defined in the config)
     const languageOptions = dropdownMenu.locator('.dropdown-item');
-    await expect(languageOptions).toHaveCount(11);
+    await expect(languageOptions).toHaveCount(CONFIG.supportedLocales.length);
     
     // Verify English is visible in the list
     const englishOption = dropdownMenu.getByText(/english/i);
@@ -138,7 +140,7 @@ test.describe('STAC Browser Homepage', () => {
     
     // Wait for navigation and verify the catalog title appears as h1 heading
     const catalogTitle = page.getByRole('heading', { name: /microsoft planetary computer stac api/i });
-    await expect(catalogTitle).toBeVisible({ timeout: 10000 });
+    await expect(catalogTitle).toBeVisible();
     
     // Verify the page title changed
     await expect(page).toHaveTitle(/microsoft planetary computer stac api/i);
@@ -164,7 +166,7 @@ test.describe('STAC Browser Homepage', () => {
     
     // Wait for navigation and verify the catalog title appears as h1 heading
     const catalogTitle = page.getByRole('heading', { name: new RegExp(expectedTitle, 'i') });
-    await expect(catalogTitle).toBeVisible({ timeout: 10000 });
+    await expect(catalogTitle).toBeVisible();
     
     // Verify the page title changed
     await expect(page).toHaveTitle(new RegExp(expectedTitle, 'i'));

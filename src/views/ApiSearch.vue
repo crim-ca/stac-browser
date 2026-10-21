@@ -6,18 +6,18 @@
       <b-col class="left">
         <WidgetHook id="view-search-filters-start" />
         <b-tabs v-model="activeSearch">
-          <b-tab v-if="collectionSearch" :title="$t('search.tabs.collections')" id="search-collections-tab">
+          <b-tab v-if="collectionSearch" :title="$t('search.tabs.collections')" :id="tabIds.collections">
             <WidgetHook id="view-search-filters-collections-start" />
             <SearchFilter
-              :parent="parent" title="" :value="collectionFilters" type="Collections"
+              :parent="parent" title="" type="Collections"
               @input="setFilters"
             />
             <WidgetHook id="view-search-filters-collections-end" />
           </b-tab>
-          <b-tab v-if="itemSearch" :title="$t('search.tabs.items')" id="search-items-tab">
+          <b-tab v-if="itemSearch" :title="$t('search.tabs.items')" :id="tabIds.items">
             <WidgetHook id="view-search-filters-items-start" />
             <SearchFilter
-              :parent="parent" title="" :value="itemFilters" type="Global"
+              :parent="parent" title="" type="Global"
               :searchLink="itemSearch"
               @input="setFilters"
             />
@@ -29,20 +29,22 @@
       <b-col class="right">
         <Loading v-if="loading" fill top />
         <ErrorAlert v-else-if="error" :description="error" :id="errorId" />
-        <b-alert v-else-if="data === null" variant="info" show>{{ $t('search.modifyCriteria') }}</b-alert>
-        <b-alert v-else-if="results.length === 0 && noFurtherItems" variant="info" show>{{ $t('search.noFurtherItemsFound') }}</b-alert>
+        <b-alert v-else-if="data === null && isMissingCollections" variant="secondary" show>{{ $t('search.collectionsRequired') }}</b-alert>
+        <b-alert v-else-if="data === null" variant="secondary" show>{{ $t('search.modifyCriteria') }}</b-alert>
+        <b-alert v-else-if="results.length === 0 && noFurtherItems" variant="secondary" show>{{ $t('search.noFurtherItemsFound') }}</b-alert>
         <b-alert v-else-if="results.length === 0" variant="warning" show>{{ $t('search.noItemsFound') }}</b-alert>
         <template v-else>
           <WidgetHook id="view-search-results-start" />
-          <div id="search-map" v-if="resultCollection">
-            <MapView :stac="parent" :children="resultCollection" onfocusOnly popover />
+          <div id="search-map" v-if="data">
+            <MapView :stac="parent" :children="data" popover />
           </div>
           <Catalogs
             v-if="isCollectionSearch" :catalogs="results" collectionsOnly
             :pagination="pagination" :loading="loading" @paginate="loadResults"
             :count="totalCount" :apiFilters="collectionFilters"
+            @click="armCarryOver"
           >
-            <template #catalogFooter="slot">
+            <template #footer="slot">
               <b-button-group v-if="itemSearch || canFilterItems(slot.data)" vertical size="sm">
                 <b-button v-if="itemSearch" variant="outline-primary" :pressed="selectedCollections[slot.data.id]" @click="selectForItemSearch(slot.data)">
                   <b-icon-check-square v-if="selectedCollections[slot.data.id]" />
@@ -50,12 +52,13 @@
                   <span class="ms-2">{{ $t('search.selectForItemSearch') }}</span>
                 </b-button>
                 <StacLink :button="{variant: 'outline-primary', disabled: !canFilterItems(slot.data)}" :data="slot.data" :title="$t('search.filterCollection')" :state="{itemFilterOpen: 1}" />
+                <StacActions :data="slot.data" variant="outline-primary" compact size="sm" />
               </b-button-group>
             </template>
           </Catalogs>
           <Items
             v-else
-            :stac="parent" :items="results" :api="true" :allowFilter="false"
+            :stac="parent" :items="results" :api="true"
             :pagination="pagination" :loading="loading" @paginate="loadResults"
             :count="totalCount" :apiFilters="itemFilters"
           />
@@ -63,25 +66,26 @@
         </template>
       </b-col>
     </b-row>
-    <b-alert v-if="selectedCollectionCount > 0" show variant="dark" class="selected-collections-action">
-      <b-button @click="openItemSearch" variant="primary" size="lg">
-        {{ $t('search.useInItemSearch', selectedCollectionCount, {count: selectedCollectionCount}) }}
-      </b-button>
-    </b-alert>
+    <b-button
+      v-if="selectedCollectionCount> 0" @click="openItemSearch"
+      variant="primary" size="lg" class="selected-collections-action"
+    >
+      {{ $t('search.useInItemSearch', selectedCollectionCount, {count: selectedCollectionCount}) }}
+    </b-button>
   </main>
 </template>
 
 <script>
 import Utils from '../utils';
-import { toAbsolute } from 'stac-js/src/http.js';
 import { isObject, size } from 'stac-js/src/utils.js';
 import SearchFilter from '../components/SearchFilter.vue';
+import { TYPES } from '../components/ApiCapabilitiesMixin';
 import Loading from '../components/Loading.vue';
 import ErrorAlert from '../components/ErrorAlert.vue';
-import { getDisplayTitle, createSTAC, CollectionCollection, ItemCollection } from '../models/stac';
+import { getDisplayTitle, createSTAC } from '../models/stac';
 import { STAC } from 'stac-js';
 import { defineComponent, defineAsyncComponent } from 'vue';
-import { getErrorCode, getErrorMessage, processSTAC, stacRequest } from '../store/utils';
+import { getErrorCode, getErrorMessage, fetchQueryablesForLink, fetchSortablesForLink } from '../store/utils';
 import { mapGetters, mapState } from "vuex";
 import { BTab, BTabs } from 'bootstrap-vue-next';
 
@@ -96,6 +100,7 @@ export default defineComponent({
     SearchFilter,
     Items: defineAsyncComponent(() => import('../components/Items.vue')),
     MapView: defineAsyncComponent(() => import('../components/MapView.vue')),
+    StacActions: defineAsyncComponent(() => import('../components/StacActions.vue')),
     StacLink: defineAsyncComponent(() => import('../components/StacLink.vue'))
   },
   props: {
@@ -115,87 +120,53 @@ export default defineComponent({
       itemFilters: {},
       collectionFilters: {},
       activeSearch: undefined,
-      selectedCollections: {}
+      selectedCollections: {},
+      tabIds: {
+        collections: 'search-collections-tab',
+        items: 'search-items-tab'
+      }
     };
   },
   computed: {
-    ...mapState(['catalogUrl', 'catalogTitle', 'searchResultsPerPage', 'itemsPerPage', 'collectionsPerPage']),
-    ...mapGetters(['canSearchItems', 'canSearchCollections', 'getStac', 'root', 'collectionLink', 'parentLink', 'fromBrowserPath', 'toBrowserPath']),
+    ...mapState(['catalogUrl', 'catalogTitle', 'searchResultsPerPage', 'stateQueryParameters']),
+    ...mapGetters(['canSearchItems', 'canSearchCollections', 'getStac', 'root', 'collectionLink', 'parentLink', 'fromBrowserPath', 'supportsConformance']),
     selectedCollectionCount() {
       return size(this.selectedCollections);
     },
     totalCount() {
-      if (typeof this.data.numberMatched === 'number') {
+      if (typeof this.data?.numberMatched === 'number') {
         return this.data.numberMatched;
       }
       return null;
     },
     supportsSearch() {
-      return this.canSearchCollections || this.canSearchItems;
+      return this.collectionSearch || this.itemSearch;
     },
     searchLink() {
       return this.isCollectionSearch ? this.collectionSearch : this.itemSearch;
     },
     collectionSearch() {
-      return this.canSearchCollections && this.parent && this.parent.getApiCollectionsLink();
+      return this.parent && this.canSearchCollections(this.parent) && this.parent.getApiCollectionsLink();
     },
     itemSearch() {
-      return this.canSearchItems && this.parent && this.parent.getSearchLink();
-    },
-    resultCollection() {
-      if (this.isCollectionSearch) {
-        return new CollectionCollection({
-          collections: this.results,
-          links: []
-        });
-      }
-      else {
-        return new ItemCollection({
-          type: 'FeatureCollection',
-          features: this.results,
-          links: []
-        });
-      }
+      return this.parent && this.canSearchItems(this.parent) && this.parent.getSearchLink();
     },
     results() {
-      if (size(this.data) === 0) {
-        return [];
-      }
-      let list = this.isCollectionSearch ? this.data.collections : this.data.features;
-      let type = this.isCollectionSearch ? 'Collection' : 'Feature';
-      if (!Array.isArray(list)) {
-        return [];
-      }
-      // todo: use itemcollection class
-      return list
-        .map(obj => {
-          try {
-            if (!isObject(obj) || obj.type !== type) {
-              return null;
-            }
-            let selfLink = Utils.getLinkWithRel(obj.links, 'self');
-            let url;
-            if (selfLink?.href) {
-              url = toAbsolute(selfLink.href, this.link.href);
-            }
-            let stac = createSTAC(obj, url, this.toBrowserPath(url));
-            stac = processSTAC(this.$store.state, stac);
-            return stac;
-          } catch (error) {
-            console.error(error);
-            return null;
-          }
-        })
-        .filter(obj => obj instanceof STAC);
+      return this.data?.getAll() || [];
     },
     pagination() {
-      return Utils.getPaginationLinks(this.data);
+      return this.data?.getPaginationLinks() || {};
     },
     filters() {
       return this.isCollectionSearch ? this.collectionFilters : this.itemFilters;
     },
     isCollectionSearch() {
       return this.collectionSearch && this.activeSearch === 'search-collections-tab';
+    },
+    isMissingCollections() {
+      return !this.isCollectionSearch
+        && this.supportsConformance(TYPES.Global.RequireCollections, this.parent)
+        && size(this.$store.state.search.itemFilters.collections) === 0;
     },
     pageDescription() {
       let title = getDisplayTitle([this.collectionLink, this.parentLink, this.root], this.catalogTitle);
@@ -210,19 +181,61 @@ export default defineComponent({
     }
   },
   watch:{
-    activeSearch() {
+    'stateQueryParameters.searchtype': {
+      immediate: true,
+      handler(searchType) {
+        if (searchType && this.tabIds[searchType]) {
+          this.activeSearch = this.tabIds[searchType];
+        }
+      }
+    },
+    'stateQueryParameters.q': {
+      handler(q) {
+        this.updateFreeText(q, true);
+      }
+    },
+    async activeSearch(tab, oldTab) {
+      // Reset search results when switching tabs
       this.data = null;
+      // Update the search type (collections/items) in the URL
+      const tabId = Object.entries(this.tabIds).find(([, value]) => value === tab);
+      if (tabId) {
+        this.$store.commit('updateState', {type: 'searchtype', value: tabId[0]});
+      }
+      // Switching from collection search to item search carries the collection
+      // search criteria over, gated on the item-search conformance classes.
+      // Only on a real tab change, not the initial assignment.
+      if (oldTab === this.tabIds.collections && tab === this.tabIds.items && this.$store.getters['search/hasCollectionSearchCriteria']) {
+        await this.$store.dispatch('search/carryToItemSearch', {
+          collection: this.parent,
+          fetchQueryables: (stac) => fetchQueryablesForLink(this.$store, stac?.getQueryablesLink?.()),
+          fetchSortables: (stac) => fetchSortablesForLink(this.$store, stac?.getSortablesLink?.()),
+          targetType: 'Global',
+        });
+        this.itemFilters = this.$store.getters['search/itemSearchParams'];
+      }
+      // Restore the previous results for this tab, e.g. when the user returns
+      // to the Search page after visiting a result
+      await this.restoreResults();
     },
     searchLink: {
       immediate: true,
-      handler() {
+      async handler() {
         if (this.searchLink) {
           this.showPage();
+          // The search link only becomes available once the parent is loaded,
+          // which may be after the tab has been activated
+          await this.restoreResults();
         }
       }
     }
   },
   async created() {
+    // Continue with the persisted search filters, e.g. when the user returns
+    // to the Search page after visiting a result
+    this.collectionFilters = this.$store.getters['search/collectionSearchParams'];
+    this.itemFilters = this.$store.getters['search/itemSearchParams'];
+
     let url = this.catalogUrl;
     if (this.loadParent) {
       url = this.fromBrowserPath(this.loadParent);
@@ -239,11 +252,34 @@ export default defineComponent({
       this.parent = this.getStac(url);
       this.showPage();
     }
+
+    // We had this initially in a watcher with immediate: true, but this was executed too early.
+    // Thus we only apply it once when creating the component and then on any subsequent change.
+    this.updateFreeText(this.stateQueryParameters.q);
   },
   methods: {
+    // Arms the carry-over when the user opens a collection from the search
+    // results, so that its item filters continue the collection search.
+    // Applies to any link in the results, e.g. the collection cards and the
+    // "filter collection" buttons.
+    armCarryOver(event) {
+      const isPlainClick = event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      if (isPlainClick && event.target.closest('a')) {
+        this.$store.commit('search/setCarryOnNextNavigation', true);
+      }
+    },
+    updateFreeText(q, force = false) {
+      if (Array.isArray(q) && (force || size(q) > 0)) {
+        // The store is the source of truth for the filter forms; an empty
+        // array explicitly clears the free-text filter.
+        const mutation = this.isCollectionSearch ? 'search/setCollectionFilters' : 'search/setItemFilters';
+        this.$store.commit(mutation, { q });
+        this.setFilters({ ...this.filters, q });
+      }
+    },
     openItemSearch() {
-      this.itemFilters.collections = Object.keys(this.selectedCollections);
-      this.activeSearch = 'search-items-tab';
+      this.$store.commit('search/setItemFilters', { collections: Object.keys(this.selectedCollections) });
+      this.activeSearch = this.tabIds.items;
       this.selectedCollections = {};
     },
     selectForItemSearch(collection) {
@@ -264,28 +300,49 @@ export default defineComponent({
       this.error = null;
       this.errorId = null;
       this.loading = true;
+
       try {
         this.link = Utils.addFiltersToLink(link, this.filters, this.searchResultsPerPage);
-
-        const key = this.isCollectionSearch ? 'collections' : 'features';
-        const response = await stacRequest(this.$store, this.link);
+      
+        const response = await this.$store.dispatch('request', { link: this.link });
         if (response) {
           this.showPage(response.config.url);
         }
+
+        const key = this.isCollectionSearch ? 'collections' : 'features';
         if (!isObject(response.data) || !Array.isArray(response.data[key])) {
-          this.data = {};
+          this.data = null;
           this.error = this.$t(this.isCollectionSearch ? 'errors.invalidStacCollections' : 'errors.invalidStacItems');
         }
         else {
           const url = this.link.getAbsoluteUrl();
-          this.data = createSTAC(response.data, url, this.toBrowserPath(url));
+          const data = createSTAC(response.data, url, this.$store);
+          this.data = data;
+          // Remember the shown results so that they can be restored when the
+          // user returns to the Search page
+          this.$store.commit('search/setResultsLink', {
+            type: this.isCollectionSearch ? 'Collections' : 'Global',
+            link
+          });
         }
       } catch (error) {
-        this.data = {};
+        this.data = null;
         this.error = getErrorMessage(error);
         this.errorId = getErrorCode(error);
       } finally {
         this.loading = false;
+      }
+    },
+    // Restores the previously shown results, e.g. when the user returns to
+    // the Search page after visiting a result
+    async restoreResults() {
+      if (this.data !== null || this.loading || !this.searchLink) {
+        return;
+      }
+      const type = this.activeSearch === this.tabIds.collections ? 'Collections' : 'Global';
+      const savedLink = this.$store.state.search.resultsLinks[type];
+      if (savedLink) {
+        await this.loadResults(savedLink);
       }
     },
     async setFilters(filters, reset = false) {
@@ -295,10 +352,11 @@ export default defineComponent({
       else {
         this.itemFilters = filters;
       }
-      if (reset) {
+      if (reset || this.isMissingCollections) {
         this.data = null;
       }
-      else {
+      else if (this.searchLink) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         await this.loadResults(this.searchLink);
       }
     },
@@ -328,17 +386,20 @@ export default defineComponent({
 }
 
 #search-map {
-  margin-bottom: $block-margin;
+  margin-bottom: var(--sb-block-gap);
 }
 
 #stac-browser .search {
   .selected-collections-action {
     position: fixed;
-    bottom: 0;
-    right: 0;
-    z-index: 5000;
-    margin: 1rem;
-    box-shadow: 2px 2px 4px 0px rgba(0, 0, 0, 0.25);
+    bottom: 2rem;
+    right: 2rem;
+    z-index: $zindex-fixed;
+    box-shadow: 0 6px 14px 0 rgba(0, 0, 0, 0.5);
+
+    &:hover {
+      box-shadow: 0 8px 16px 0 rgba(0, 0, 0, 0.6);
+    }
   }
 
   .left {

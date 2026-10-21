@@ -5,7 +5,7 @@
  * item listing, and detail controls.
  */
 import { test, expect } from './fixtures.js';
-import { waitForBrowserReady } from './helpers.js';
+import { clearClipboard, readClipboard, waitForBrowserReady } from './helpers.js';
 import StaticCatalog from '../fixtures/instances/static.js';
 import API from '../fixtures/instances/api.js';
 
@@ -40,10 +40,10 @@ test.describe('Collection Metadata', () => {
     await expect(page.getByText(new RegExp(description, 'i'))).toBeVisible();
     
     // Keywords from the collection should be visible
-    for (const kw of collection.getMetadata().keywords) {
+    await Promise.all(collection.getMetadata().keywords.map((kw) => {
       const badge = page.locator('.keywords .keyword', { hasText: new RegExp(kw, 'i') });
-      await expect(badge.first()).toBeVisible();
-    }
+      return expect(badge.first()).toBeVisible();
+    }));
     
     // License should be visible
     await expect(page.getByRole('link', { name: new RegExp(collection.getMetadata().license, 'i') })).toBeVisible();
@@ -51,6 +51,26 @@ test.describe('Collection Metadata', () => {
     // Temporal extent should be visible with start date
     const start = collection.getMetadata().extent.temporal.interval[0][0].split('T')[0];
     await expect(page.getByText(new RegExp(start))).toBeVisible();
+  });
+
+  // Regression test for https://github.com/radiantearth/stac-browser/issues/954
+  // An open-ended temporal extent ("{0} until present") dropped its start date in
+  // non-English languages because interpolation values were passed to vue-i18n as
+  // options instead of values, resolving {0} to an empty string.
+  test('Catalog - open-ended temporal extent keeps its start date in non-English languages', async ({ page, worker }) => {
+    const { catalog, collection } = createStaticCatalog();
+    await catalog.createServer(worker);
+
+    await page.goto(`${collection.getBrowserPath()}?.language=de`);
+    await waitForBrowserReady(page);
+
+    // Default collection fixture has an open-ended interval, e.g. ["2020-01-01T00:00:00Z", null].
+    const year = collection.getMetadata().extent.temporal.interval[0][0].slice(0, 4);
+    const temporalValue = page.locator('section.metadata .row', { hasText: 'Zeitliche Ausdehnung' }).locator('.value');
+    // The start date must be present alongside the German "until present" marker,
+    // not just "bis jetzt" on its own.
+    await expect(temporalValue).toContainText(year);
+    await expect(temporalValue).toContainText('bis jetzt');
   });
 
   test('API - should load and display collection metadata', async ({ page, worker }) => {
@@ -72,10 +92,10 @@ test.describe('Collection Metadata', () => {
     await expect(page.getByText(new RegExp(description, 'i'))).toBeVisible();
     
     // Keywords from the collection should be visible
-    for (const kw of collection.getMetadata().keywords) {
+    await Promise.all(collection.getMetadata().keywords.map((kw) => {
       const badge = page.locator('.keywords .keyword', { hasText: new RegExp(kw, 'i') });
-      await expect(badge.first()).toBeVisible();
-    }
+      return expect(badge.first()).toBeVisible();
+    }));
     
     // License should be visible
     await expect(page.getByRole('link', { name: new RegExp(collection.getMetadata().license, 'i') })).toBeVisible();
@@ -152,28 +172,31 @@ test.describe('Collection - toolBar', () => {
     await page.goto(collection.getBrowserPath());
     await waitForBrowserReady(page);
     
-    const shareButton = page.getByRole('button', { name: /share/i });
+    const shareButton = page.locator('#popover-share-btn');
     await expect(shareButton).toBeVisible();
   });
   
-  test('share button copies collection\'s getBrowserPath() to clipboard', async ({ page, worker }) => {
+  test('share button copies collection\'s URL to clipboard', async ({ page, worker, context }) => {
     const { catalog, collection } = createStaticCatalog();
+    await context.grantPermissions(['clipboard-write', 'clipboard-read']);
     await catalog.createServer(worker);
     
     await page.goto(collection.getBrowserPath());
     await waitForBrowserReady(page);
     
-    const shareButton = page.getByRole('button', { name: /share/i });
+    const shareButton = page.locator('#popover-share-btn');
     await expect(shareButton).toBeVisible();
     await shareButton.click();
     
     // The share popover contains a copy button; click it to copy the current page URL
     const copyButton = page.getByRole('button', { name: /copy/i });
     await expect(copyButton).toBeVisible();
+    await clearClipboard(page);
     await copyButton.click();
     
-    // The URL copied to clipboard should match the collection's getBrowserPath()
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    // The URL copied to clipboard should match the collection's URL
+    await expect.poll(() => readClipboard(page)).not.toEqual('');
+    const clipboardText = await readClipboard(page);
     expect(clipboardText).toBe(page.url());
   });
   
@@ -351,7 +374,7 @@ test.describe('STAC Collection item search', () => {
     const submitButton = page.getByRole('button', { name: /submit/i });
     await submitButton.click();
     const itemCards = page.locator('.item-card');
-    await expect(itemCards).toHaveCount(5, { timeout: 10000 });
+    await expect(itemCards).toHaveCount(5);
   });
     
   test('item search can be paginated with Next and Previous buttons', async ({ page, worker }) => {
@@ -370,19 +393,19 @@ test.describe('STAC Collection item search', () => {
     const prevButton = page.getByRole('button', { name: /previous/i }).first();
       
     // verify first page shows 5 items, Next enabled, Previous disabled
-    await expect(itemCards).toHaveCount(5, { timeout: 10000 });
+    await expect(itemCards).toHaveCount(5);
     await expect(nextButton).toBeEnabled();
     await expect(prevButton).toBeDisabled();
       
     // click Next and verify second page shows 5 items, Next disabled, Previous enabled
     await nextButton.click();
-    await expect(itemCards).toHaveCount(5, { timeout: 10000 });
+    await expect(itemCards).toHaveCount(5);
     await expect(nextButton).toBeDisabled();
     await expect(prevButton).toBeEnabled();
       
     // click Previous and verify first page is shown again with 5 items, Next enabled, Previous disabled
     await prevButton.click();
-    await expect(itemCards).toHaveCount(5, { timeout: 10000 });
+    await expect(itemCards).toHaveCount(5);
     await expect(nextButton).toBeEnabled();
     await expect(prevButton).toBeDisabled(); 
   });
@@ -405,19 +428,19 @@ test.describe('STAC Collection item search', () => {
     const prevButton = page.getByRole('button', { name: /previous/i }).first();
       
     // verify first page shows 5 items, First disabled, Last enabled
-    await expect(itemCards).toHaveCount(5, { timeout: 10000 });
+    await expect(itemCards).toHaveCount(5);
     await expect(firstButton).toBeDisabled();
     await expect(lastButton).toBeEnabled();
       
     // click Last to jump to the last page and verify it shows 5 items, Next disabled, First enabled
     await lastButton.click();
-    await expect(itemCards).toHaveCount(5, { timeout: 10000 });
+    await expect(itemCards).toHaveCount(5);
     await expect(nextButton).toBeDisabled();
     await expect(firstButton).toBeEnabled();
       
     // click First and verify first page is shown again
     await firstButton.click();
-    await expect(itemCards).toHaveCount(5, { timeout: 10000 });
+    await expect(itemCards).toHaveCount(5);
     await expect(prevButton).toBeDisabled();
   });
 });

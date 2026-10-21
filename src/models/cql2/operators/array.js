@@ -23,6 +23,10 @@ export default class CqlArrayOperator extends CqlOperator {
     }
   }
 
+  toText() {
+    return `${this.operator}(${this.args.map(arg => arg.toText()).join(', ')})`;
+  }
+
   static valueType() {
     return CqlArray;
   }
@@ -33,7 +37,7 @@ export default class CqlArrayOperator extends CqlOperator {
 
 }
 
-// Currently only implemented for strings and numbers, not for booleans and time instances
+// Currently only implemented for strings, numbers and time instances, not for booleans
 export class CqlIn extends CqlArrayOperator {
 
   static SYMBOL = "in";

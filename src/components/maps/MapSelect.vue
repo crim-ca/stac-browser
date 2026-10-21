@@ -1,6 +1,6 @@
 <template>
   <div class="map-container">
-    <div ref="map" class="map">
+    <div ref="map" class="map" tabindex="0" role="region" :aria-label="$t('map')">
       <!-- this will be filled by OpenLayers -->
       <TextControl :text="help" :map="map" />
       <UserLocationControl :map="map" :maxZoom="maxZoom" />
@@ -81,7 +81,6 @@
 </template>
 
 <script>
-import { mapState } from 'vuex';
 import MapMixin from './MapMixin.js';
 import LayerControl from './LayerControl.vue';
 import TextControl from './TextControl.vue';
@@ -96,6 +95,7 @@ import GeoJSON from 'ol/format/GeoJSON';
 import Fill from 'ol/style/Fill';
 import VectorLayer from 'ol/layer/Vector';
 import { toGeoJSON } from 'stac-js/src/geo.js';
+import { toOlExtent } from 'ol-stac/util.js';
 import mask from '@turf/mask';
 
 function getBoxDefaults() {
@@ -130,7 +130,6 @@ export default {
   emits: ['update:modelValue'],
   data() {
     return {
-      crs: 'EPSG:4326',
       extent: this.modelValue,
       dragging: false,
       validationErrors: getBoxDefaults(),
@@ -138,7 +137,6 @@ export default {
     };
   },
   computed: {
-    ...mapState(['uiLanguage']),
     projectedExtent() {
       if (this.extent) {
         return this.stacToOlExtent(this.extent);
@@ -162,7 +160,9 @@ export default {
     async initMap() {
       this.map = null;
 
-      await this.createMap(this.$refs.map, this.stac, true);
+      // The map is only shown after opting in via a checkbox,
+      // so interactions are enabled without requiring focus
+      await this.createMap(this.$refs.map);
 
       // Add extent interaction for bbox selection
       const condition = (event) => {
@@ -214,7 +214,15 @@ export default {
         extent = this.stacToOlExtent(this.stac.getBoundingBox());
       }
       if (extent) {
-        this.map.getView().fit(extent, { padding: [50,50,50,50], maxZoom: this.maxZoom });
+        const fit = () => this.map.getView().fit(extent, { padding: [50, 50, 50, 50], maxZoom: this.maxZoom });
+        const size = this.map.getSize();
+        if (size && size[0] > 0 && size[1] > 0) {
+          fit();
+        }
+        else {
+          // Update the map once the size is known, might be zero size if the map is in a hidden tab or so.
+          this.map.once('change:size', fit);
+        }
       }
     },
     addMask(stac) {
@@ -223,7 +231,9 @@ export default {
         return;
       }
 
-      const geojson = stac.toGeoJSON();
+      // Use non-great-circle GeoJSON output to avoid antimeridian wrap issues,
+      // ensuring the mask covers the correct areas.
+      const geojson = stac.toGeoJSON({ greatCircle: false });
       if (!geojson) {
         return;
       }
@@ -251,8 +261,12 @@ export default {
     fixX(x) {
       // Normalize longitude to -180 to 180 range
       // For antimeridian crossing, westLon can be > eastLon
-      while (x > 180) {x -= 360;}
-      while (x < -180) {x += 360;}
+      while (x > 180) {
+        x -= 360;
+      }
+      while (x < -180) {
+        x += 360;
+      }
       return x;
     },
     fixY(y) {
@@ -260,7 +274,7 @@ export default {
     },
     update(event) {
       if (event.extent) {
-        this.extent = transformExtent(event.extent, this.map.getView().getProjection(), this.crs);
+        this.extent = transformExtent(event.extent, this.map.getView().getProjection(), 'EPSG:4326');
         const extent = [
           this.fixX(this.extent[0]),
           this.fixY(this.extent[1]),
@@ -385,20 +399,17 @@ export default {
       if (!Array.isArray(extent) || extent.length !== 4) {
         return null;
       }
-      const mapExtent = [...extent];
-      // For antimeridian-crossing bboxes (westLon > eastLon), shift eastLon
-      // by +360 so OpenLayers gets a valid extent where minX < maxX.
-      if (mapExtent[0] > mapExtent[2]) {
-        mapExtent[2] += 360;
-      }
-      return transformExtent(mapExtent, this.crs, this.map.getView().getProjection());
+    
+      // Handles antimeridian-crossing bboxes (westLon > eastLon), shifting
+      // eastLon by +360 so OpenLayers gets a valid extent where minX < maxX.
+      return toOlExtent(extent, this.map.getView().getProjection());
     }
   }
 };
 </script>
 
 <style lang="scss">
-@import "ol/ol.css";
+@import "../../theme/map.scss";
 </style>
 
 <style lang="scss" scoped>
@@ -421,6 +432,13 @@ export default {
   padding: 0.5rem;
   background-color: $light;
   border-top: 1px solid darken($light, 10%);
+}
+
+[data-bs-theme="dark"] {
+  .bbox-controls {
+    background-color: $dark;
+    border-top: 1px solid lighten($dark, 10%);
+  }
 }
 
 .compass-grid {

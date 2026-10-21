@@ -8,6 +8,7 @@ import { test, expect } from './fixtures.js';
 import { waitForBrowserReady } from './helpers.js';
 import StaticCatalog from '../fixtures/instances/static.js';
 import API from '../fixtures/instances/api.js';
+import { http, HttpResponse } from 'msw';
 
 test.describe('Item view - Metadata', () => {
   function createCatalog() {
@@ -213,6 +214,103 @@ test.describe('Item view - Assets', () => {
     // the expanded asset panel shows Download / Copy URL / Show on map buttons
     await expect(page.getByRole('button', { name: /download/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /show on map/i })).toBeVisible();
+  });
+});
+
+test.describe('Item view - Alternate thumbnails', () => {
+  // A minimal 1x1 PNG, served for the HTTPS alternate of an S3-only thumbnail.
+  const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const THUMB_URL = 'https://stac.example/thumbnail-https.png';
+
+  function createCatalog() {
+    const catalog = new StaticCatalog({ url: 'https://stac.example/catalog.json' });
+    catalog.addCollection({ url: 'https://stac.example/collection.json' });
+    const item = catalog.addItem({ url: 'https://stac.example/item.json' });
+    // The thumbnail's main access mechanism is S3 (which a browser can't display),
+    // but it provides an HTTPS alternate that a browser *can* display. STAC Browser
+    // should fall back to the alternate. See
+    // https://github.com/radiantearth/stac-browser/issues/910
+    item.data.assets = {
+      thumbnail: {
+        href: 's3://example-bucket/thumbnail.png',
+        type: 'image/png',
+        roles: ['thumbnail'],
+        title: 'Thumbnail Image',
+        'alternate:name': 'S3',
+        alternate: {
+          https: {
+            href: THUMB_URL,
+            type: 'image/png',
+            'alternate:name': 'HTTPS'
+          }
+        }
+      }
+    };
+    item.addToExtensions('https://stac-extensions.github.io/alternate-assets/v1.2.0/schema.json');
+    return { catalog, item };
+  }
+
+  test('falls back to the HTTPS alternate and actually renders the image', async ({ page, worker }) => {
+    const { catalog, item } = createCatalog();
+    await catalog.createServer(worker);
+    // Serve an actual image for the HTTPS alternate (added after createServer,
+    // which resets handlers).
+    await worker.use(
+      http.get(THUMB_URL, () => {
+        const bytes = Uint8Array.from(atob(PNG_BASE64), c => c.charCodeAt(0));
+        return new HttpResponse(bytes, { headers: { 'Content-Type': 'image/png' } });
+      })
+    );
+
+    await page.goto(item.getBrowserPath());
+    await waitForBrowserReady(page);
+
+    // Open the thumbnails tab.
+    const thumbTab = page.getByRole('tab', { name: /thumbnails/i });
+    await thumbTab.click();
+    await expect(page.getByRole('tabpanel', { name: /thumbnails/i })).toBeVisible();
+
+    // The rendered thumbnail must use the HTTPS alternate URL, not the S3 href.
+    const img = page.locator('img.thumbnail');
+    await expect(img).toBeVisible();
+    await expect(img).toHaveAttribute('src', THUMB_URL);
+
+    // And the image must have actually loaded (decoded to a non-zero size).
+    await expect
+      .poll(() => img.evaluate(el => el.complete && el.naturalWidth > 0))
+      .toBe(true);
+  });
+});
+
+test.describe('Item view - Asset actions', () => {
+  test('SVG assets are offered for download instead of being opened', async ({ page, worker }) => {
+    const catalog = new StaticCatalog({ url: 'https://stac.example/catalog.json' });
+    const item = catalog.addItem({ url: 'https://stac.example/item.json' });
+    item.data.assets = {
+      legend: { href: 'https://stac.example/legend.svg', type: 'image/svg+xml', roles: ['metadata'], title: 'Legend' },
+      chart: { href: 'https://stac.example/chart.png', type: 'image/png', roles: ['metadata'], title: 'Chart' }
+    };
+    await catalog.createServer(worker);
+
+    await page.goto(item.getBrowserPath());
+    await waitForBrowserReady(page);
+
+    const expandAsset = async (title) => {
+      const asset = page.locator('.asset', { hasText: title });
+      await asset.getByRole('button', { name: title }).click();
+      return asset;
+    };
+
+    // SVG files opened in the browser can run scripts
+    const legend = await expandAsset('Legend');
+    const download = legend.getByRole('button', { name: /download/i });
+    await expect(download).toBeVisible();
+    await expect(download).toHaveAttribute('download');
+    await expect(legend.getByRole('button', { name: /^open$/i })).toHaveCount(0);
+
+    // Other images that browsers can show are still opened
+    const chart = await expandAsset('Chart');
+    await expect(chart.getByRole('button', { name: /^open$/i })).toBeVisible();
   });
 });
 

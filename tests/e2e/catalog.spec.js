@@ -5,7 +5,7 @@
  * navigating into collections/items, source view, and share functionality.
  */
 import { test, expect } from './fixtures.js';
-import { waitForBrowserReady } from './helpers.js';
+import { clearClipboard, mockStacResource, readClipboard, waitForBrowserReady } from './helpers.js';
 import StaticCatalog from '../fixtures/instances/static.js';
 import API from '../fixtures/instances/api.js';
 
@@ -107,29 +107,32 @@ test.describe('Catalog - toolBar', () => {
     await page.goto(catalog.root.getBrowserPath());
     await waitForBrowserReady(page);
     
-    const shareButton = page.getByRole('button', { name: /share/i });
+    const shareButton = page.locator('#popover-share-btn');
     await expect(shareButton).toBeVisible();
   });
   
-  test('Catalog - share button copies URL to clipboard', async ({ page, worker }) => {
+  test('Catalog - share button copies URL to clipboard', async ({ page, worker, context }) => {
     const { catalog } = createStaticCatalog();
     
+    await context.grantPermissions(['clipboard-write', 'clipboard-read']);
     await catalog.createServer(worker);
     
     await page.goto(catalog.root.getBrowserPath());
     await waitForBrowserReady(page);
     
-    const shareButton = page.getByRole('button', { name: /share/i });
+    const shareButton = page.locator('#popover-share-btn');
     await expect(shareButton).toBeVisible();
     await shareButton.click();
     
     // The share popover contains a copy button; click it to copy the current page URL
     const copyButton = page.getByRole('button', { name: /copy/i });
     await expect(copyButton).toBeVisible();
+    await clearClipboard(page);
     await copyButton.click();
     
     // Verify the URL was copied to the clipboard
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    await expect.poll(() => readClipboard(page)).not.toEqual('');
+    const clipboardText = await readClipboard(page);
     await expect(clipboardText).toContain(catalog.root.getBrowserPath());
   });
 
@@ -159,7 +162,7 @@ test.describe('Catalog - toolBar', () => {
     await page.goto(api.root.getBrowserPath());
     await waitForBrowserReady(page);
     
-    const shareButton = page.getByRole('button', { name: /share/i });
+    const shareButton = page.locator('#popover-share-btn');
     await expect(shareButton).toBeVisible();
   });
   
@@ -172,17 +175,19 @@ test.describe('Catalog - toolBar', () => {
     await page.goto(api.root.getBrowserPath());
     await waitForBrowserReady(page);
     
-    const shareButton = page.getByRole('button', { name: /share/i });
+    const shareButton = page.locator('#popover-share-btn');
     await expect(shareButton).toBeVisible();
     await shareButton.click();
     
     // The share popover contains a copy button; click it to copy the current page URL
     const copyButton = page.getByRole('button', { name: /copy/i });
     await expect(copyButton).toBeVisible();
+    await clearClipboard(page);
     await copyButton.click();
     
     // Verify the URL was copied to the clipboard
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    await expect.poll(() => readClipboard(page)).not.toEqual('');
+    const clipboardText = await readClipboard(page);
     await expect(clipboardText).toContain(api.root.getBrowserPath());
   });
 });
@@ -261,6 +266,57 @@ test.describe('Catalog - Children', () => {
     await expect(page).toHaveURL(new RegExp(collection.getBrowserPath()));
   });
 
+  test('Catalog - a slow page does not replace the page navigated to in the meantime', async ({ page, worker }) => {
+    const root = 'https://stac.example/race/catalog.json';
+    const child = 'https://stac.example/race/slow/collection.json';
+    await mockStacResource(worker, root, {
+      type: 'Catalog', stac_version: '1.0.0', id: 'race', title: 'Root Catalog', description: 'Root',
+      links: [{ rel: 'self', href: root }, { rel: 'root', href: root }, { rel: 'child', href: child, title: 'Slow Child' }]
+    });
+    await mockStacResource(worker, child, {
+      type: 'Collection', stac_version: '1.0.0', id: 'slow', title: 'Slow Collection', description: 'Slow', license: 'CC0-1.0',
+      extent: { spatial: { bbox: [[-1, -1, 1, 1]] }, temporal: { interval: [[null, null]] } },
+      links: [{ rel: 'self', href: child }, { rel: 'root', href: root }, { rel: 'parent', href: root }]
+    }, { delay: 2000 });
+
+    await page.goto('/external/stac.example/race/catalog.json');
+    await waitForBrowserReady(page);
+    await expect(page.getByRole('heading', { name: 'Root Catalog', level: 1 })).toBeVisible();
+
+    // Open the slow collection and go back before it has loaded
+    await page.getByRole('link', { name: /Slow Child/ }).first().click();
+    await page.goBack();
+
+    // Once the collection has loaded, its title shows up in the list of children
+    await expect(page.locator('.catalogs').getByText('Slow Collection')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Root Catalog');
+  });
+
+  test('Catalog - a slow page that is opened again while it is loading is shown', async ({ page, worker }) => {
+    const root = 'https://stac.example/reopen/catalog.json';
+    const child = 'https://stac.example/reopen/slow/collection.json';
+    await mockStacResource(worker, root, {
+      type: 'Catalog', stac_version: '1.0.0', id: 'reopen', title: 'Root Catalog', description: 'Root',
+      links: [{ rel: 'self', href: root }, { rel: 'root', href: root }, { rel: 'child', href: child, title: 'Slow Child' }]
+    });
+    await mockStacResource(worker, child, {
+      type: 'Collection', stac_version: '1.0.0', id: 'slow', title: 'Slow Collection', description: 'Slow', license: 'CC0-1.0',
+      extent: { spatial: { bbox: [[-1, -1, 1, 1]] }, temporal: { interval: [[null, null]] } },
+      links: [{ rel: 'self', href: child }, { rel: 'root', href: root }, { rel: 'parent', href: root }]
+    }, { delay: 2000 });
+
+    await page.goto('/external/stac.example/reopen/catalog.json');
+    await waitForBrowserReady(page);
+    await expect(page.getByRole('heading', { name: 'Root Catalog', level: 1 })).toBeVisible();
+
+    // Open the slow collection, go back and open it again while the first request is pending
+    await page.getByRole('link', { name: /Slow Child/ }).first().click();
+    await page.goBack();
+    await page.getByRole('link', { name: /Slow Child/ }).first().click();
+
+    await expect(page.getByRole('heading', { name: 'Slow Collection', level: 1 })).toBeVisible();
+  });
+
   // API tests
   test('API - renders child collection as link', async ({ page, worker }) => {
     const { api } = createAPI();
@@ -302,6 +358,50 @@ test.describe('Catalog - Children', () => {
     await expect(page.locator('.catalogs .card-grid > *')).toHaveCount(0);
   });
   
+  test('API - collection list is restored when returning to the page', async ({ page, worker }) => {
+    const { api } = createAPI();
+    const collection = api.addCollection('my-collection').setMetadata({ title: 'Test Collection' });
+    api.addItem(collection, 'my-item');
+
+    await api.createServer(worker);
+
+    await page.goto(api.root.getBrowserPath());
+    await waitForBrowserReady(page);
+    await expect(page.getByRole('link', { name: new RegExp(collection.getMetadata().title) })).toBeVisible();
+
+    // Visit the search page and return to the catalog page (in-app navigation,
+    // not full page loads), the collections should be restored from the cache
+    await page.getByRole('navigation').getByRole('button', { name: /search/i }).click();
+    await expect(page).toHaveURL(/\/search/);
+    await page.goBack();
+    await waitForBrowserReady(page);
+    await expect(page.getByRole('link', { name: new RegExp(collection.getMetadata().title) }))
+      .toBeVisible();
+  });
+
+  test('API - tree auto-loads more collection pages', async ({ page, worker }) => {
+    // One collection per page, so that the second collection is only
+    // available after loading the next page of the collections endpoint
+    const api = API.defaultApi({}, { defaultLimit: 1 });
+    const collection1 = api.addCollection('collection-1').setMetadata({ title: 'Test Collection 1' });
+    const collection2 = api.addCollection('collection-2').setMetadata({ title: 'Test Collection 2' });
+
+    await api.createServer(worker);
+
+    // Open a collection page so that only the tree can trigger loading more collection pages
+    await page.goto(collection1.getBrowserPath());
+    await waitForBrowserReady(page);
+
+    await page.getByRole('button', { name: /browse/i }).click();
+
+    // The sidebar is an async component that is loaded on demand by the click above
+    const sidebar = page.locator('#sidebar');
+    await expect(sidebar).toBeVisible();
+    await expect(sidebar.getByText(collection1.getMetadata().title)).toBeVisible();
+    // The next page of collections loads automatically once the tree is shown
+    await expect(sidebar.getByText(collection2.getMetadata().title)).toBeVisible();
+  });
+
   test('API - navigates into a child collection on click', async ({ page, worker }) => {
     const { api } = createAPI();
     const collection = api.addCollection('my-collection');

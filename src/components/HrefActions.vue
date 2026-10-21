@@ -4,8 +4,8 @@
       <b-button variant="danger" v-if="requiresAuth" tag="a" tabindex="0" :id="`popover-href-${id}-btn`" @click="handleAuthButton">
         <b-icon-lock /> {{ $t('authentication.required') }}
       </b-button>
-      <b-button v-if="hasDownloadButton" :disabled="requiresAuth" variant="primary" v-bind="downloadProps" v-on="downloadEvents">
-        <b-spinner v-if="loading" small variant="light" />
+      <b-button v-if="canDownload && !requiresAuth" variant="primary" v-bind="downloadProps" v-on="downloadEvents">
+        <b-spinner v-if="loading" small />
         <b-icon-box-arrow-up-right v-else-if="browserCanOpenFile" />
         <b-icon-download v-else />
         {{ buttonText }}
@@ -13,7 +13,7 @@
       <CopyButton variant="primary" :copyText="href" :title="href">
         {{ copyButtonText }}
       </CopyButton>
-      <b-button v-if="hasShowButton" @click="show" variant="primary">
+      <b-button v-if="hasShowButton && !requiresAuth" @click="show" variant="primary">
         <b-icon-eye class="me-1" />
         <template v-if="isThumbnail">{{ $t('assets.showThumbnail') }}</template>
         <template v-else>{{ $t('assets.showOnMap') }}</template>
@@ -41,16 +41,18 @@
 import { defineAsyncComponent } from 'vue';
 
 import Description from './Description.vue';
-import Utils, { mapMediaTypes } from '../utils';
-import { size } from 'stac-js/src/utils.js';
+import Utils from '../utils';
+import { size, URI } from 'stac-js/src/utils.js';
 import { mapGetters, mapState } from 'vuex';
 import AssetActions from '../../assetActions.config';
 import LinkActions from '../../linkActions.config';
-import { URI } from 'stac-js/src/utils.js';
 import AuthUtils from './auth/utils';
-import { Asset } from 'stac-js';
 import { browserProtocols } from 'stac-js/src/http';
-import { imageMediaTypes } from 'stac-js/src/mediatypes';
+import { imageMediaTypes, geojsonMediaType, svgMediaType, wozMediaTypes, zarrMediaTypes } from 'stac-js/src/mediatypes';
+import { getGeoZarrSourceOptionsFromAsset } from 'ol-stac/util.js';
+
+const disableDownloadTypes = [...zarrMediaTypes];
+const mapTypes = imageMediaTypes.concat([geojsonMediaType]).concat(wozMediaTypes);
 
 let i = 0;
 
@@ -77,7 +79,8 @@ export default {
     },
     size: {
       type: String,
-      default: 'md'
+      default: 'md',
+      validator: value => ['sm', 'md', 'lg'].includes(value)
     },
     shown: {
       type: Boolean,
@@ -91,12 +94,13 @@ export default {
   emits: ['show'],
   data() {
     return {
-      id: i++
+      id: i++,
+      tileUrlTemplate: null
     };
   },
   computed: {
-    ...mapState(['downloads', 'pathPrefix', 'requestHeaders', 'buildTileUrlTemplate', 'useTileLayerAsFallback']),
-    ...mapGetters(['getRequestUrl']),
+    ...mapState(['downloads', 'requestHeaders', 'buildTileUrlTemplate', 'useTileLayerAsFallback']),
+    ...mapGetters(['getRequestUrl', 'isExternalUrl']),
     ...mapGetters('auth', ['isLoggedIn']),
     loading() {
       return Boolean(this.downloads[this.href]);
@@ -105,14 +109,25 @@ export default {
       return !this.isLoggedIn && this.auth.length > 0;
     },
     tileRendererType() {
-      if (this.buildTileUrlTemplate && !this.useTileLayerAsFallback) {
+      if (this.tileUrlTemplate && !this.useTileLayerAsFallback) {
         return 'server';
       }
       else {
         return 'client';
       }
     },
+    // External services can't receive header-based credentials, so the
+    // external viewer actions won't work for data that requires them.
+    requiresHeaderCredentials() {
+      if (typeof this.data.href !== 'string') {
+        return false;
+      }
+      return size(this.requestHeaders) > 0 && !this.isExternalUrl(this.data.getAbsoluteUrl());
+    },
     actions() {
+      if (this.requiresAuth || this.requiresHeaderCredentials) {
+        return [];
+      }
       return Object.entries(this.isAsset ? AssetActions : LinkActions)
         .map(([id, plugin]) => new plugin(this.data, this, id))
         .filter(plugin => plugin.show);
@@ -122,8 +137,8 @@ export default {
       if (typeof this.data?.type !== 'string') {
         return false;
       }
-      // If the tile renderer is a tile server, we can't really know what it supports so we pass all images
-      else if (this.tileRendererType === 'server' && imageMediaTypes.includes(this.data?.type)) {
+      // If the tile renderer is a tile server, the buildTileUrlTemplate function decides which assets it supports
+      else if (this.tileRendererType === 'server') {
         return true;
       }
       // Only http(s) links and relative links are supported
@@ -131,21 +146,31 @@ export default {
         return false;
       }
       // Otherwise, all images that a browser can read are supported + GeoJSON
-      else if (mapMediaTypes.includes(this.data?.type)) {
+      else if (mapTypes.includes(this.data?.type)) {
         return true;
+      }
+      // Other Zarr assets can only be shown if the STAC metadata declares
+      // what to render (a datacube variable or bands)
+      else if (this.isAsset && zarrMediaTypes.includes(this.data?.type)) {
+        try {
+          const options = getGeoZarrSourceOptionsFromAsset(this.data, []);
+          return Boolean(options.variable || (options.bands && options.bands.length > 0));
+        } catch {
+          return false;
+        }
       }
       return false;
     },
     hasShowButton() {
       return this.isAsset && this.canShow && !this.shown;
     },
-    hasDownloadButton() {
-      return this.isAsset && this.isBrowserProtocol;
+    canDownload() {
+      return this.isAsset && this.isBrowserProtocol && !disableDownloadTypes.includes(this.data?.type);
     },
     downloadEvents() {
-      if (this.hasDownloadButton && this.useAltDownloadMethod) {
+      if (this.canDownload && this.useAltDownloadMethod) {
         return {
-          click: async (event) => {
+          click: (event) => {
             event.preventDefault();
             this.altDownload();
           }
@@ -154,7 +179,7 @@ export default {
       return {};
     },
     downloadProps() {
-      if (this.hasDownloadButton && !this.useAltDownloadMethod) {
+      if (this.canDownload && !this.useAltDownloadMethod) {
         const props = {
           href: this.href,
           target: '_blank',
@@ -213,6 +238,10 @@ export default {
       if (this.useAltDownloadMethod)  {
         return false;
       }
+      // SVG files opened in the browser can run scripts, so they are downloaded instead
+      if (this.data.isType(svgMediaType)) {
+        return false;
+      }
       if (this.data.canBrowserDisplayImage()) {
         return true;
       }
@@ -237,6 +266,26 @@ export default {
     copyButtonText() {
       let where = (!this.isBrowserProtocol && this.from) ? 'withSource' : 'generic';
       return this.$t(`assets.copyUrl.${where}`, {source: this.from});
+    }
+  },
+  watch: {
+    data: {
+      immediate: true,
+      async handler(data) {
+        this.tileUrlTemplate = null;
+        if (!this.isAsset || !this.buildTileUrlTemplate) {
+          return;
+        }
+        try {
+          const url = await this.buildTileUrlTemplate(data);
+          // Ignore stale results if the asset changed in the meantime
+          if (this.data === data) {
+            this.tileUrlTemplate = url;
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      }
     }
   },
   methods: {
@@ -279,12 +328,8 @@ export default {
       return '';
     },
     show() {
-      // Clone asset so that we can change the href.
-      // The this.href may include query parameters for authentication due to getRequestUrl.
-      // Unless we make authentication data available to ol-stac in a different way, we have to add it here.
-      const data = new Asset(this.data);
-      data.href = this.href;
-      this.$emit('show', data);
+      // Credentials are attached by the map itself (see MapMixin)
+      this.$emit('show', this.data);
     },
     handleAuthButton() {
       if (this.auth.length === 1) {

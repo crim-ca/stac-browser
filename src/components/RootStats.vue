@@ -35,7 +35,7 @@
 
 <script>
 import { formatKey } from "@radiantearth/stac-fields/helper";
-import { mapGetters, mapState } from "vuex";
+import { mapGetters } from "vuex";
 import Url from './Url.vue';
 import { isObject, size } from 'stac-js/src/utils.js';
 import { defineAsyncComponent } from 'vue';
@@ -47,13 +47,12 @@ export default {
     Url
   },
   computed: {
-    ...mapState(['conformsTo']),
-    ...mapGetters(['root']),
+    ...mapGetters(['getConformanceClasses', 'root']),
     rootUrl() {
       return this.root ? this.root.getAbsoluteUrl() : null;
     },
     hasConformances() {
-      return Array.isArray(this.conformsTo) && this.conformsTo.length > 0;
+      return this.getConformanceClasses().length > 0;
     },
     conformances() {
       if (!this.hasConformances) {
@@ -64,7 +63,7 @@ export default {
         STAC: {},
         Other: {} 
       };
-      for(let uri of this.conformsTo) {
+      for(let uri of this.getConformanceClasses()) {
         let confClass =  this.parseConformance(uri);
         obj[confClass.type][uri] = confClass;
       }
@@ -87,8 +86,8 @@ export default {
       for (let key in stats) {
         if (isObject(this.root[key])) {
           let entry = Object.assign(stats[key], this.root[key]);
-          if (size(entry['versions']) === 1) {
-            entry.version = Object.keys(entry['versions'])[0];
+          if (size(entry.versions) === 1) {
+            entry.version = Object.keys(entry.versions)[0];
             delete entry.versions;
           }
         }
@@ -127,10 +126,18 @@ export default {
       else if (uri.startsWith('https://api.stacspec.org/')) {
         type = 'STAC';
 
-        let match = uri.match(/^https?:\/\/api\.stacspec\.org\/([^/]+)\/([^/#]+)(?:#(.+))?$/);
+        // Handles the following extension URI formats:
+        // https://api.stacspec.org/VERSION/TYPE/extensions/SUBTYPE 
+        // https://api.stacspec.org/VERSION/TYPE#SUBTYPE
+        const match = uri.match(/^https?:\/\/api\.stacspec\.org\/([^/]+)\/([^/#]+)(?:(?:#|\/extensions\/)(.+))?$/);
         if (match) {
           version = match[1];
-          title = formatKey(match[2]);
+          if (match[2] === 'ogcapi-features') {
+            title = 'STAC / OGC API - Features';
+          }
+          else {
+            title = formatKey(match[2]);
+          }
           if (match[3]) {
             title += ' - ' + formatKey(match[3]);
           }
@@ -148,7 +155,7 @@ export default {
 
 #stac-browser .root-stats {
   h4 {
-    margin-top: $block-margin;
+    margin-top: var(--sb-block-gap);
   }
 
   .charts .chart {
