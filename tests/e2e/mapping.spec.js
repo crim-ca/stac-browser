@@ -183,3 +183,123 @@ test.describe('Very small footprint item', () => {
     expect(view.lat).toBeLessThan(50.78);
   });
 });
+
+test.describe('Catalog with web map links', () => {
+  function createCatalog(links = []) {
+    const catalog = new StaticCatalog({ url: 'https://stac.example/catalog.json' });
+    catalog.setMetadata({ title: 'Web Map Catalog', description: 'A catalog without spatial extent' });
+    links.forEach(link => catalog.root.addLink(link));
+    return catalog;
+  }
+
+  test('shows a map and lists the links next to it', async ({ page, worker }) => {
+    const catalog = createCatalog([{
+      rel: 'xyz',
+      href: 'https://tiles.example/tiles/{z}/{x}/{y}.png',
+      type: 'image/png',
+      title: 'Tiles',
+    }]);
+    await catalog.createServer(worker);
+
+    await page.goto(catalog.root.getBrowserPath());
+    await waitForBrowserReady(page);
+    await waitForMapReady(page);
+
+    await expect(page.locator('.maps-preview')).toBeVisible();
+    // The links move into the intro section so that they don't wrap below the map
+    const links = page.locator('.meta > .intro > .links');
+    await expect(links.getByRole('heading', { name: 'Additional Resources' })).toBeVisible();
+    await expect(links.getByText('Tiles')).toBeVisible();
+  });
+
+  test('web map links can be shown on and hidden from the map', async ({ page, worker }) => {
+    const catalog = createCatalog([1, 2].map(i => ({
+      rel: 'xyz',
+      href: `https://tiles${i}.example/tiles/{z}/{x}/{y}.png`,
+      type: 'image/png',
+      title: `Tiles ${i}`,
+    })));
+    await catalog.createServer(worker);
+
+    await page.goto(catalog.root.getBrowserPath());
+    await waitForBrowserReady(page);
+    await waitForMapReady(page);
+
+    const links = page.locator('.meta > .intro > .links');
+    const openPopover = async (title) => {
+      // Close other popovers first, they stay open while focused
+      await page.getByRole('heading', { name: 'Web Map Catalog' }).click();
+      await expect(page.locator('.link-more:visible')).toHaveCount(0);
+      await links.getByText(title).hover();
+      return page.locator('.link-more:visible');
+    };
+
+    // The first link is shown by default
+    let popover = await openPopover('Tiles 1');
+    await expect(popover.getByRole('button', { name: 'Hide from map' })).toBeVisible();
+
+    popover = await openPopover('Tiles 2');
+    await popover.getByRole('button', { name: 'Show on map' }).click();
+    await expect(popover.getByRole('button', { name: 'Hide from map' })).toBeVisible();
+
+    await popover.getByRole('button', { name: 'Hide from map' }).click();
+    await expect(popover.getByRole('button', { name: 'Show on map' })).toBeVisible();
+
+    popover = await openPopover('Tiles 1');
+    await expect(popover.getByRole('button', { name: 'Hide from map' })).toBeVisible();
+  });
+
+  test('web map links that share a URL can be shown independently', async ({ page, worker }) => {
+    const catalog = createCatalog(['a', 'b'].map(layer => ({
+      rel: 'wms',
+      href: 'https://wms.example/service',
+      type: 'image/png',
+      title: `Layer ${layer}`,
+      'wms:layers': [layer],
+    })));
+    await catalog.createServer(worker);
+
+    await page.goto(catalog.root.getBrowserPath());
+    await waitForBrowserReady(page);
+    await waitForMapReady(page);
+
+    const links = page.locator('.meta > .intro > .links');
+    // The first link is shown by default, the second one isn't
+    await links.getByText('Layer a').hover();
+    await expect(page.locator('.link-more:visible').getByRole('button', { name: 'Hide from map' })).toBeVisible();
+    await page.getByRole('heading', { name: 'Web Map Catalog' }).click();
+    await links.getByText('Layer b').hover();
+    await expect(page.locator('.link-more:visible').getByRole('button', { name: 'Show on map' })).toBeVisible();
+  });
+
+  test('a single web map link can be removed in the layer switcher', async ({ page, worker }) => {
+    const catalog = createCatalog([{
+      rel: 'xyz',
+      href: 'https://tiles.example/tiles/{z}/{x}/{y}.png',
+      type: 'image/png',
+      title: 'Tiles',
+    }]);
+    await catalog.createServer(worker);
+
+    await page.goto(catalog.root.getBrowserPath());
+    await waitForBrowserReady(page);
+    await waitForMapReady(page);
+
+    await page.locator('.ol-layercontrol button').click();
+    const layerControl = page.locator('.layercontrol');
+    await expect(layerControl.locator('.title', { hasText: 'Tiles' })).toBeVisible();
+    await layerControl.getByRole('button', { name: 'Hide from map' }).click();
+    await expect(layerControl.locator('.title', { hasText: 'Tiles' })).toHaveCount(0);
+  });
+
+  test('shows no map without web map links', async ({ page, worker }) => {
+    const catalog = createCatalog();
+    await catalog.createServer(worker);
+
+    await page.goto(catalog.root.getBrowserPath());
+    await waitForBrowserReady(page);
+
+    await expect(page.getByRole('heading', { name: 'Web Map Catalog' })).toBeVisible();
+    await expect(page.locator('.maps-preview')).toHaveCount(0);
+  });
+});
